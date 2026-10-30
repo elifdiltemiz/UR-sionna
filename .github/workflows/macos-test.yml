@@ -1,1 +1,56 @@
+name: macOS install test
 
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest   # Apple Silicon (arm64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System info
+        run: |
+          uname -m
+          sw_vers -productVersion
+          df -h ~
+
+      - name: LLVM
+        run: |
+          brew install llvm
+          ls "$(brew --prefix llvm)/lib/libLLVM.dylib"
+
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: venv and install
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install sionna-rt jupyterlab
+
+      - name: Check
+        run: |
+          source .venv/bin/activate
+          python -c "import sionna.rt, mitsuba as mi; print(mi.variant())"
+
+      - name: Run the exercise (without the Colab lines)
+        run: |
+          source .venv/bin/activate
+          python - <<'EOF'
+          import sionna.rt
+          from sionna.rt import load_scene, Transmitter, Receiver, PlanarArray, PathSolver
+          scene = load_scene(sionna.rt.scene.munich)
+          scene.frequency = 3.5e9
+          scene.tx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
+          scene.rx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
+          scene.add(Transmitter(name="TX", position=[8.5, 21, 27]))
+          scene.add(Receiver(name="RX", position=[45, 90, 1.5]))
+          paths = PathSolver()(scene, max_depth=3)
+          a, tau = paths.cir(out_type="numpy")
+          print("paths ok:", a.shape)
+          EOF
